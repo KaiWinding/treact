@@ -1,0 +1,23 @@
+{
+  "name": "treact",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "./node_modules/.bin/babel src --out-dir lib --extensions '.ts','.tsx' --watch",
+    "on": "http-server ./lib"
+  },
+  "author": "kun",
+  "license": "ISC",
+  "dependencies": {
+    "@babel/polyfill": "^7.7.0"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.7.5",
+    "@babel/core": "^7.7.5",
+    "@babel/plugin-transform-react-jsx": "^7.7.4",
+    "@babel/preset-env": "^7.7.6",
+    "@babel/preset-typescript": "^7.7.4"
+  }
+}
