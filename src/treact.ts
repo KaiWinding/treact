@@ -8,38 +8,115 @@ export interface TreactElement {
   }
 }
 
+interface TreactInstance {
+  dom: any
+  element: TreactElement,
+  childInstances: TreactInstance[]
+}
+
 console.log('hello treact !')
 
+let rootInstance: TreactInstance | null  = null
+
 export function render(element: TreactElement, parentDom: any): void {
-  const { type, props } = element
+  const prevInstance = rootInstance
+  const nextInstance = reconcile(parentDom, prevInstance, element)
 
-  if (type === TEXT_ELEMENT) {
-    const dom = document.createTextNode(props.nodeValue)
-    
-    parentDom.appendChild(dom)
+  rootInstance = nextInstance
+}
 
-    return
+function reconcile(
+  parentDom,
+  prevInstance: TreactInstance | null,
+  element: TreactElement): TreactInstance {
+  if (!prevInstance) {
+    const newInstance = instantiate(element)
+
+    parentDom.appendChild(newInstance.dom)
+
+    return newInstance
   }
+}
 
-  const dom = document.createElement(type)
+function instantiate(element: TreactElement): TreactInstance {
+  const { props, type } = element
 
-  const isListner = (name: string) => name.startsWith('on')
-  Object.keys(props).filter(name => isListner(name))
-    .forEach(name => {
-      const eventType = name.toLowerCase().substring(2)
-      dom.addEventListener(eventType, props[name])
-    })
-
-  const attributes = Object.keys(props).filter(key => key !== 'children')
-  //@ts-ignore
-  attributes.forEach(name => dom[name] = props[name])
-
-  const childrenEl = props.children || []
-  childrenEl.forEach(el => render(el, dom))
+  const isTextElement = type => type === TEXT_ELEMENT
+  const dom = isTextElement(type)
+    ? document.createTextNode(props.nodeValue)
+    : document.createElement(type)
 
   console.log('dom = ', dom)
+  console.log('props = ', props)
 
-  parentDom.appendChild(dom)
+  updateDomProperties(dom, [], props)
+
+  const childInstances = props.children
+    ? props.children.map(instantiate)
+    : []
+
+  childInstances.forEach((instance: TreactInstance) => {
+    dom.appendChild(instance.dom)
+  })
+
+  const instance = {
+    dom,
+    element,
+    childInstances
+  }
+
+  return instance
+}
+
+function updateDomProperties(dom, prevProps, nextProps) {
+  const isEvent = (prop: string) => prop.startsWith('on')
+  const isAttribute = (prop: string) => !isEvent && prop !== 'children'
+  const getEventTypeFromProp = (prop: string) => prop.toLowerCase().substring(2)
+
+  const unChangedProps = []
+  const updatedProps = []
+  const addedProps = []
+  const removedProps = []
+
+  Object.keys(nextProps).forEach((prop: string) => {
+    if ((prop in prevProps) || (prevProps[prop] !== nextProps)) updatedProps.push(prop)
+    if (!(prop in prevProps)) addedProps.push(prop)
+    if (prevProps[prop] ===  nextProps[prop]) unChangedProps.push(prop)
+  })
+  Object.keys(prevProps).forEach((prop: string) => {
+    if (!(prop in nextProps)) removedProps.push(prop)
+  })
+
+  removedProps.forEach((prop: string) => {
+    if (isEvent(prop)) {
+      const eventType = getEventTypeFromProp(prop)
+
+      dom.removeEventListener(eventType, prevProps[prop])
+    } else if (isAttribute(prop)) {
+      dom[prop] = null
+    }
+  })
+
+  addedProps.forEach((prop: string) => {
+    if (isEvent(prop)) {
+      const eventType = getEventTypeFromProp(prop)
+
+      dom.addEventListener(eventType, nextProps[prop])
+    } else if (isAttribute(prop)) {
+      dom[prop] = nextProps[prop]
+    }
+  })
+
+  updatedProps.forEach((prop: string) => {
+    if (isEvent(prop)) {
+      const eventType = getEventTypeFromProp(prop)
+
+      dom.removeEventListener(eventType, prevProps[prop])
+      dom.addEventListener(eventType, nextProps[prop])
+    } else if (isAttribute(prop)) {
+      dom[prop] = nextProps[prop]
+    }
+  })
 }
 
 export function createElement(type, config, ...args) {
