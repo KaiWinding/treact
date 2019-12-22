@@ -1,26 +1,72 @@
 const TEXT_ELEMENT = 'TEXT_ELEMENT'
 
-export interface TreactElement {
+export interface ITreactElement {
+  type: string | typeof Component
+  props: {
+    [name: string]: any
+    children: ITreactElement[]
+  }
+}
+
+class TreactElement implements ITreactElement {
   type: string
   props: {
     [name: string]: any
-    children: TreactElement[]
+    children: ITreactElement[]
   }
+
+  constructor(type: string, props: ITreactElement['props']) {
+    this.type = type
+    this.props = props
+  }
+}
+
+export class Component {
+  _internalInstance: TreactInstance
+  props: any
+  state: any
+
+  constructor(props) {
+    this.props = props
+    this.state = this.state || {}
+  }
+
+  setState(particalState) {
+    this.state = Object.assign({}, this.state, particalState)
+    updateInternalInstance(this._internalInstance)
+  }
+
+  public render() {
+    return null
+  }
+}
+
+function updateInternalInstance(internalInstance: TreactInstance) {
+  const parentDom = internalInstance.dom.parentNode
+  const element = internalInstance.element
+
+  reconcile(parentDom, internalInstance, element)
+}
+
+function createPublicInstance(element: ITreactElement, internalInstance) {
+  const { type, props } = element
+  const publicInstance = new (type as typeof Component)(props)
+  publicInstance._internalInstance = internalInstance
+
+  return publicInstance
 }
 
 interface TreactInstance {
   dom: any
-  element: TreactElement,
-  childInstances: TreactInstance[]
+  element: ITreactElement,
+  childInstances?: TreactInstance[]
+  childInstance?: TreactInstance
+  publicInstance?: any
 }
-
-console.log('hello treact !')
 
 let rootInstance: TreactInstance | null  = null
 
-export function render(element: TreactElement, parentDom: any): void {
-  console.log('element = ', element)
-
+export function render(element: ITreactElement, parentDom: any): void {
   const prevInstance = rootInstance
   const nextInstance = reconcile(parentDom, prevInstance, element)
 
@@ -30,7 +76,7 @@ export function render(element: TreactElement, parentDom: any): void {
 function reconcile(
   parentDom,
   prevInstance: TreactInstance | null,
-  element: TreactElement): TreactInstance {
+  element: ITreactElement): TreactInstance {
   if (!prevInstance) {
     const newInstance = instantiate(element)
 
@@ -47,16 +93,26 @@ function reconcile(
     parentDom.replaceChild(newInstance.dom, prevInstance.dom)
 
     return newInstance
-  } else if (prevInstance.element.type === element.type) {
+  } else if (typeof element.type === 'string') {
     updateDomProperties(prevInstance.dom, prevInstance.element.props, element.props)
     prevInstance.childInstances = reconcileChildren(prevInstance, element)
+    prevInstance.element = element
+
+    return prevInstance
+  } else {
+    prevInstance.publicInstance.props = element.props
+    const childElement = prevInstance.publicInstance.render()
+    const oldChildInstance = prevInstance.childInstance
+    const childInstance = reconcile(parentDom, oldChildInstance, childElement)
+    prevInstance.dom = childInstance.dom
+    prevInstance.childInstance = childInstance
     prevInstance.element = element
 
     return prevInstance
   }
 }
 
-function reconcileChildren(instance: TreactInstance, element: TreactElement): TreactInstance['childInstances'] {
+function reconcileChildren(instance: TreactInstance, element: ITreactElement): TreactInstance['childInstances'] {
   const {
     dom,
     childInstances: prevChildInstance
@@ -72,31 +128,49 @@ function reconcileChildren(instance: TreactInstance, element: TreactElement): Tr
   return nextChildInstances.filter(el => el !== null)
 }
 
-function instantiate(element: TreactElement): TreactInstance {
+function instantiate(element: ITreactElement): TreactInstance {
   const { props, type } = element
+  const isDomElement = typeof type === 'string'
 
-  const isTextElement = type => type === TEXT_ELEMENT
-  const dom = isTextElement(type)
-    ? document.createTextNode('')
-    : document.createElement(type)
+  if (isDomElement) {
+    const isTextElement = type => type === TEXT_ELEMENT
+    const dom = isTextElement(type)
+      ? document.createTextNode('')
+      : document.createElement((type as string))
+  
+    updateDomProperties(dom, [], props)
+  
+    const childInstances = props.children
+      ? props.children.map(instantiate)
+      : []
+  
+    childInstances.forEach((instance: TreactInstance) => {
+      dom.appendChild(instance.dom)
+    })
+  
+    const instance = {
+      dom,
+      element,
+      childInstances
+    }
+  
+    return instance
+  } else {
+    const instance = {}
+    const publicInstance = createPublicInstance(element, instance)
+    const childElement = publicInstance.render()
+    const childInstance = instantiate(childElement)
+    const dom = childInstance.dom
 
-  updateDomProperties(dom, [], props)
+    Object.assign(instance, {
+      dom,
+      element,
+      childInstance,
+      publicInstance
+    })
 
-  const childInstances = props.children
-    ? props.children.map(instantiate)
-    : []
-
-  childInstances.forEach((instance: TreactInstance) => {
-    dom.appendChild(instance.dom)
-  })
-
-  const instance = {
-    dom,
-    element,
-    childInstances
+    return (instance as TreactInstance)
   }
-
-  return instance
 }
 
 function updateDomProperties(dom, prevProps, nextProps) {
@@ -151,18 +225,14 @@ function updateDomProperties(dom, prevProps, nextProps) {
 }
 
 export function createElement(type, config, ...args) {
-  console.log('type = ', type)
-  console.log('config = ', config)
-  console.log('...args = ', args)
-
   const props = Object.assign({}, config)
   const hasChildren = args.length > 0
 
   props.children = hasChildren
-    ? args.map(el => el instanceof Object ? el : createTextElement(el))
+    ? args.map(el => el instanceof TreactElement ? el : createTextElement(el))
     : []
 
-  return { type, props }
+  return new TreactElement(type, props)
 }
 
 function createTextElement(value: string) {
